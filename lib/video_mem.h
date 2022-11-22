@@ -18,6 +18,10 @@
 #ifndef _VIDEO_MEM_H_
 #define _VIDEO_MEM_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* No special needs. */
 #define VMEM_FLAG_NONE                  0x00000000
 /* Physical contiguous. */
@@ -60,5 +64,9 @@ VmemStatus VMEM_destroy(void *vmem);
 VmemStatus VMEM_export(void *vmem, VmemParams *params);
 VmemStatus VMEM_import(void *vmem, VmemParams *params);
 VmemStatus VMEM_release(void *vmem, VmemParams *params);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* !_VIDEO_MEM_H_ */
