@@ -501,10 +501,13 @@ Mmap(
     if (memBlk->contiguous)
     {
         /* map kernel memory to user space.. */
+        #if 0
         if (memBlk->is_cma == true) {
             return dma_mmap_coherent(gdev, vma, memBlk->va,
 					   memBlk->dma_addr, vma->vm_end - vma->vm_start);
-        } else {
+        } else
+        #endif
+        {
             if (remap_pfn_range(vma,
                                 vma->vm_start,
                                 page_to_pfn(memBlk->contiguousPages) + skipPages,
