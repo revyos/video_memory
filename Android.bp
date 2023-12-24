@@ -1,0 +1,32 @@
+cc_library_headers {
+    name: "libvmem_headers",
+    proprietary: true,
+    min_sdk_version: "29",
+
+    export_include_dirs: [
+        "lib",
+    ],
+}
+
+cc_library_shared {
+    name: "libvmem",
+    proprietary: true,
+    srcs: [
+        "lib/*.c",
+    ],
+    tidy: true,
+    tidy_flags: [
+       "--export-fixes=thead_libvmem.yaml"
+    ],
+    tidy_checks: [
+       "*"
+    ],
+    local_include_dirs: [
+        "lib",
+        "driver",
+    ],
+    cflags: [
+        "-Werror",
+    ],
+}
+
