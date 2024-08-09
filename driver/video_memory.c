@@ -527,10 +527,16 @@ Mmap(
     if (!memBlk->cache_en) {
         vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
     }
-    DEBUG_PRINT("vm_page_prot:0x%llx\n",vma->vm_page_prot);
+    DEBUG_PRINT("start remap vm_page_prot:0x%llx,skipPages %d,numPages %d,memBlk->contiguous %d\n",vma->vm_page_prot,skipPages,numPages,memBlk->contiguous);
+
     /* Now map all the vmalloc pages to this user address. */
     if (memBlk->contiguous)
     {
+        if(!numPages)
+        {
+            pr_err("numPages is zero,addr %llx pfn 0x%x\n",vma->vm_start,page_to_pfn(memBlk->contiguousPages) + skipPages);
+            return -1;
+        }
         /* map kernel memory to user space.. */
         #if 0
         if (memBlk->is_cma == true) {
@@ -743,15 +749,18 @@ static void _dmabuf_release(struct dma_buf *dmabuf)
         DEBUG_PRINT("[vidmem] %s, %d: memBlk filp null\n", __func__, __LINE__);
         return;
     }
+    DEBUG_PRINT("  %s: remove node\n",__func__);
+    //remove node from export gloabl list,
+    //Remove it before free mem pages to avoid pages freed but node not deleted due to thread competition
+    spin_lock(&export_mem_lock);
+    list_del(&mnode->link);
+    spin_unlock(&export_mem_lock);
+
     getPhysical(memBlk, 0, &physical);
     DEBUG_PRINT("[vidmem] %s, %d: free physical %llx,mnode %px\n", __func__, __LINE__,physical,mnode);
 
     free_memblk_pages(memBlk);
-    DEBUG_PRINT("  %s: remove node\n",__func__);
-    //remove node from export gloabl list
-    spin_lock(&export_mem_lock);
-    list_del(&mnode->link);
-    spin_unlock(&export_mem_lock);
+
     DEBUG_PRINT("  %s: FreeMemory of node\n",__func__);
     FreeMemory(mnode);
     dmabuf->priv = NULL;
@@ -1252,10 +1261,11 @@ OnDone:
     mnode->isImported = 0;
     spin_lock(&mem_lock);
     list_add_tail(&mnode->link, &fnode->memList);
+    DEBUG_PRINT("[vidmem] filp %px add mnode %px to list %px\n",filp,mnode,&fnode->memList);
     spin_unlock(&mem_lock);
 
-    DEBUG_PRINT("[vidmem] Allocated %d bytes (%ld pages) at physical address 0x%lx with %d sg table entries\n",
-        size, numPages, physical, contiguous ? 1 : memBlk->sgt->nents);
+    DEBUG_PRINT("[vidmem] Allocated %d bytes (%ld pages) mnode %px at physical address 0x%lx with %d sg table entries\n",
+        size, numPages, mnode, physical, contiguous ? 1 : memBlk->sgt->nents);
 
     return 0;
 
@@ -1354,15 +1364,18 @@ GFP_Free(
     {
         return;
     }
+    //Remove it before free mem pages to avoid pages freed but node not deleted due to thread competition
+    spin_lock(&mem_lock);
+    DEBUG_PRINT("[vidmem] Free physical address 0x%lx  del mnode %px filp %px\n", mnode->busAddr, mnode,filp);
+    list_del(&mnode->link);
+    spin_unlock(&mem_lock);
 
     memBlk = &mnode->memBlk;
     DEBUG_PRINT("[vidmem] Free %ld pages from physical address 0x%lx\n", memBlk->numPages, mnode->busAddr);
 
     free_memblk_pages(memBlk);
 
-    spin_lock(&mem_lock);
-    list_del(&mnode->link);
-    spin_unlock(&mem_lock);
+
     FreeMemory(mnode);
 }
 
@@ -1376,17 +1389,18 @@ GFP_MapUser(
     struct mem_node *mnode = NULL;
     unsigned long bus_address = vma->vm_pgoff * PAGE_SIZE;
     int status = 0;
-
+    bool in_export_list = 0;
     mnode = get_mem_node(filp, bus_address, 0);
     if (NULL == mnode)
     {
         mnode = get_export_mem_node(filp, bus_address);
         if (NULL == mnode)
             return EINVAL;
+        in_export_list = 1;
     }
 
     memBlk = &mnode->memBlk;
-
+    DEBUG_PRINT("[vidmem] mnode %px ,Map %ld pages from physical address 0x%lx,in_export_list %d\n", mnode,memBlk->numPages, mnode->busAddr,in_export_list);
     if (Mmap(memBlk, 0, memBlk->numPages, vma))
     {
         return ENOMEM;
@@ -1394,7 +1408,6 @@ GFP_MapUser(
 
     memBlk->vma = vma;
 
-    DEBUG_PRINT("[vidmem] Map %ld pages from physical address 0x%lx\n", memBlk->numPages, mnode->busAddr);
 
     return status;
 }
@@ -1510,7 +1523,7 @@ static int vidalloc_open(struct inode *inode, struct file *filp)
     spin_lock(&mem_lock);
     list_add_tail(&fnode->link, &fileList);
     spin_unlock(&mem_lock);
-
+    pr_debug(" == %s:fnode %px filp %px\n",__func__,fnode,filp);
     return ret;
 }
 
@@ -1522,7 +1535,7 @@ static int vidalloc_release(struct inode *inode, struct file *filp)
 
     if (NULL == fnode)
         return EINVAL;
-
+    pr_debug(" -- %s:fnode %px filp %px\n",__func__,fnode,filp);
     list_for_each_entry_safe(node, temp, &fnode->memList, link)
     {
         // this is not expected, memory leak detected!
