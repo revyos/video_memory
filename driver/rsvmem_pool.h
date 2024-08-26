@@ -25,6 +25,7 @@ typedef struct rsvmem_pool_info
     struct gen_pool *pool;   // NULL means unavalible
     resource_size_t base;
     resource_size_t size;
+    bool res_marked_nosave;
 } rsvmem_pool_info_t;
 
 int rsvmem_pool_create(struct device *dev);
